@@ -6,6 +6,7 @@ import tempfile
 import threading
 import time
 from ctypes import windll
+from enum import Enum
 from numbers import Integral
 from typing import Callable, Union
 
@@ -167,6 +168,37 @@ def clear_console():
     os.system("cls")
 
 
+class Color(str, Enum):
+    RED = "red"
+    GREEN = "green"
+    BLUE = "blue"
+    YELLOW = "yellow"
+    ORANGE = "orange"
+    PURPLE = "purple"
+    CYAN = "cyan"
+    WHITE = "white"
+    GRAY = "gray"
+
+
+def print_clr(
+    *values,
+    color: Color | str = Color.WHITE,
+    sep: str = " ",
+    end: str = "\n",
+    file=None,
+    flush: bool = False,
+):
+    """Print text wrapped in a GUI color tag: <color=...>...</color>."""
+    text = sep.join(str(v) for v in values)
+
+    color_value = color.value if isinstance(color, Color) else str(color).strip()
+    if not color_value:
+        print(text, end=end, file=file, flush=flush)
+        return
+
+    print(f"<color={color_value}>{text}</color>", end=end, file=file, flush=flush)
+
+
 def get_click_point_from_rectangle(rectangle):
     """Return the middle point of the rectangle to click on"""
 
@@ -209,6 +241,22 @@ def find(vision_image: Vision, screenshot: np.ndarray | None, threshold=0.7, met
         return False
     rectangle = vision_image.find(screenshot, threshold=threshold, method=method)
     return bool(rectangle.size) if rectangle is not None else False
+
+def find_rect(
+    vision_image: Vision,
+    screenshot: np.ndarray | None,
+    threshold=0.7,
+    method=cv2.TM_CCOEFF_NORMED,
+) -> np.ndarray | None:
+    """Return matched rectangle [x, y, w, h], or None if not found."""
+    if screenshot is None:
+        return None
+
+    rectangle = vision_image.find(screenshot, threshold=threshold, method=method)
+    if rectangle is None:
+        return None
+
+    return rectangle if rectangle.size else None
 
 
 def find_and_click(
