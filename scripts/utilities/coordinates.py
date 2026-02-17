@@ -1,10 +1,14 @@
 """This file should be improved in the future to account for a variable game window."""
 
 from utilities.capture_window import capture_window
+from utilities.capture_window import is_adb_backend
 
 
 class Coordinates:
     """Namespace-like class to group all the hardcoded coordinates"""
+
+    _ADB_BORDER_X = 8
+    _ADB_BORDER_Y = 31
 
     # Screen coordinates for each floor
     __coordinates = {
@@ -17,7 +21,7 @@ class Coordinates:
         # The region in the screenshot corresponding to the card slots
         "card_slots_region": (150, 690, 410, 800),
         # General demonic beasts
-        "floor_region": (344, 122, 459, 175),
+        "floor_region": (344, 122, 459, 175), # 336, 91, 451, 144
         "right_swipe": (361, 466),
         "left_swipe": (177, 463),
         # For bird
@@ -80,7 +84,25 @@ class Coordinates:
 
     @staticmethod
     def get_coordinates(event: str):
-        return Coordinates.__coordinates[event]
+        coords = Coordinates.__coordinates[event]
+
+        if not is_adb_backend():
+            return coords
+
+        if len(coords) == 2:
+            x, y = coords
+            return (max(0, x - Coordinates._ADB_BORDER_X), max(0, y - Coordinates._ADB_BORDER_Y))
+
+        if len(coords) == 4:
+            x1, y1, x2, y2 = coords
+            return (
+                max(0, x1 - Coordinates._ADB_BORDER_X),
+                max(0, y1 - Coordinates._ADB_BORDER_Y),
+                max(0, x2 - Coordinates._ADB_BORDER_X),
+                max(0, y2 - Coordinates._ADB_BORDER_Y),
+            )
+
+        return coords
 
         # # Adjust their size based on the window!
         # screenshot, _ = capture_window()

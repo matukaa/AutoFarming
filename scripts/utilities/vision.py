@@ -3,10 +3,24 @@ import os
 import cv2
 import numpy as np
 from termcolor import cprint
+from utilities.capture_window import is_adb_backend
 from utilities.pattern_match_strategies import (
     IMatchingStrategy,
     TemplateMatchingStrategy,
 )
+
+
+IMAGES_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "images"))
+IMAGES_ADB_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "images_adb"))
+
+
+def _resolve_needle_path(needle_basename: str) -> str:
+    adb_path = os.path.join(IMAGES_ADB_DIR, needle_basename)
+    default_path = os.path.join(IMAGES_DIR, needle_basename)
+
+    if is_adb_backend() and os.path.exists(adb_path):
+        return adb_path
+    return default_path
 
 
 class Vision:
@@ -20,7 +34,7 @@ class Vision:
     ):
         """Receives the needle image to search on a haystack, and the matching algorithm to use"""
 
-        needle_path = os.path.join("images", needle_basename)
+        needle_path = _resolve_needle_path(needle_basename)
 
         # Save the pattern matching strategy as an attribute
         self.matching_strategy = matching_strategy
@@ -106,7 +120,7 @@ class MultiVision(Vision):
         if image_name is None:
             raise ValueError("For a MultiVision instance, the 'image_name' argument must be provided")
 
-        needle_paths = [os.path.join("images", needle_basename) for needle_basename in needle_basenames]
+        needle_paths = [_resolve_needle_path(needle_basename) for needle_basename in needle_basenames]
 
         # List with all OK image names
         self._image_names_list = [
@@ -120,9 +134,11 @@ class MultiVision(Vision):
         self.matching_strategy = matching_strategy
 
         # Store the needle image
-        self.needle_imgs = [
-            cv2.imread(needle_path) for needle_path in needle_paths if cv2.imread(needle_path) is not None
-        ]
+        self.needle_imgs = []
+        for needle_path in needle_paths:
+            needle_img = cv2.imread(needle_path)
+            if needle_img is not None:
+                self.needle_imgs.append(needle_img)
         if not len(self.needle_imgs):
             raise ValueError("No image can be found for to create an MultiVision instance", "yellow")
 

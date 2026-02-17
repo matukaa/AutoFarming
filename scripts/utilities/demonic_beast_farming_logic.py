@@ -23,6 +23,7 @@ from utilities.utilities import (
     find_and_click,
     find_floor_coordinates,
     screenshot_testing,
+    display_image
 )
 
 logger = LoggerWrapper("DBLogger", log_file="demonic_beast_logger.log")
@@ -85,6 +86,7 @@ class DemonicBeastFarmer(IFarmer, abc.ABC):
 
         # Initialize the current state
         self.current_state = starting_state
+        print(f"Starting the farmer in state {self.current_state}.")
 
         # Placeholder for the fight thread
         self.fight_thread = None
@@ -177,8 +179,9 @@ class DemonicBeastFarmer(IFarmer, abc.ABC):
         # sourcery skip: assign-if-exp, reintroduce-else
         floor_img_region = crop_region(screenshot, Coordinates.get_coordinates("floor_region"))
 
-        # display_image(floor_img_region)
-        # screenshot_testing(floor_img_region, vio.floor2, threshold=threshold)
+        display_image(floor_img_region)
+        time.sleep(10)
+        screenshot_testing(floor_img_region, vio.floor2, threshold=threshold)
 
         # Default
         db_floor = -1
@@ -340,7 +343,6 @@ class DemonicBeastFarmer(IFarmer, abc.ABC):
     def run(self):
 
         while True:
-
             check_for_reconnect()
 
             # Check if we need to log in again!

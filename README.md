@@ -3,7 +3,7 @@
 This repository contains several scripts for auto-farming specific events in the 7DS Grand Cross mobile game.
 For now it's built for Windows only, but it could change in the future.
 
-**Disclaimer**: One downside of these scripts is that they cannot run in the background, i.e., you won't be able to use your PC while autofarming.
+**Disclaimer**: By default, scripts use on-screen capture/clicks (Win32). An optional ADB backend is available for Android emulators (e.g., BlueStacks), so the game can be controlled even when minimized/hidden.
 Also, use this code at your own risk.
 
 
@@ -25,6 +25,7 @@ Join the community if you want quick replies to issues, have new feature request
 ## Requirements
 
 * Works on the official 7DS PC Beta Client: https://7dsgc.netmarble.com/en/pcclient.
+* Optional: ADB-enabled Android emulator (BlueStacks, LDPlayer, etc.) with `adb` available in `PATH`.
 * Disable "landscape mode" in Settings within the game (that means, enable portrait mode).
 * Set the game in English!
 * Disable all notifications within the game (e.g., random battle invites.)
@@ -68,6 +69,16 @@ Now, simply via the `Update` button in the "About" tab of the GUI!
 You can PAUSE/RESUME the bot at any time with the corresponding button.
 
 **NOTE**: If during the farming the bot starts working in weird ways, most likely it's because the 7DS window has auto-resized to the wrong size. To restore the right size, use the "Resize" button.
+
+### Optional: run through ADB (BlueStacks / emulator)
+
+Set these environment variables before launching the scripts:
+
+* `AUTOFARMERS_BACKEND=adb`
+* `ADB_DEVICE_SERIAL=127.0.0.1:5555` (or your emulator serial)
+* `AUTOFARMERS_ANDROID_PACKAGE=com.netmarble.nanagb` (default; change only if your package differs)
+
+In ADB mode, screenshot capture uses `adb exec-out screencap -p` and input is sent with `adb shell input ...` (tap/swipe/keyevent/text), allowing farming without focusing the game window.
 
 The GUI supports all available farmers including Bird, Deer, Dogs, Snake, Demon, Final Boss, Tower of Trials, etc.
 

@@ -19,6 +19,7 @@ import contextlib
 import os
 import re
 import signal
+import subprocess
 import sys
 import time
 
@@ -54,7 +55,7 @@ from PyQt5.QtWidgets import (
 )
 
 # Import the window resize function
-from utilities.capture_window import capture_window, resize_7ds_window
+from utilities.capture_window import capture_window, get_adb_device_serial, is_adb_backend, resize_7ds_window
 from utilities.utilities import get_pause_flag_path
 
 # Free software message to display in GUI
@@ -740,6 +741,50 @@ class FarmerTab(QWidget):
 
         # Display free software message in terminal
         self.append_terminal(FREE_SOFTWARE_MESSAGE)
+        self.append_startup_checks()
+
+    def append_startup_checks(self):
+        backend = "adb" if is_adb_backend() else "win32"
+        self.append_terminal(f"[STARTUP] Active backend: {backend}\n")
+
+        if not is_adb_backend():
+            self.append_terminal("[STARTUP] ADB connectivity check skipped (backend is win32).\n")
+            return
+
+        serial = get_adb_device_serial()
+        self.append_terminal(f"[STARTUP] ADB device: {serial}\n")
+
+        try:
+            connect_proc = subprocess.run(
+                ["adb", "connect", serial],
+                capture_output=True,
+                text=True,
+                timeout=8,
+                check=False,
+            )
+            connect_output = (connect_proc.stdout or connect_proc.stderr or "").strip()
+            if connect_output:
+                self.append_terminal(f"[STARTUP] adb connect: {connect_output}\n")
+        except Exception as e:
+            self.append_terminal(f"[ERROR] ADB connect command failed: {e}\n")
+            return
+
+        try:
+            state_proc = subprocess.run(
+                ["adb", "-s", serial, "get-state"],
+                capture_output=True,
+                text=True,
+                timeout=6,
+                check=False,
+            )
+            state_text = (state_proc.stdout or state_proc.stderr or "").strip()
+            if state_proc.returncode == 0 and state_text == "device":
+                self.append_terminal("[SUCCESS] ADB connected and device is ready.\n")
+            else:
+                state_display = state_text if state_text else f"exit code {state_proc.returncode}"
+                self.append_terminal(f"[WARNING] ADB not ready: {state_display}\n")
+        except Exception as e:
+            self.append_terminal(f"[ERROR] ADB state check failed: {e}\n")
 
     def update_sa_chest_warning(self, chest_type):
         if self.sa_chest_warning_label is None:

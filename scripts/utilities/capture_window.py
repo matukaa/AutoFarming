@@ -1,7 +1,11 @@
 import ctypes
+import os
+import re
+import subprocess
 import time
 from ctypes import wintypes
 
+import cv2
 import numpy as np
 import win32api
 import win32con
@@ -41,8 +45,152 @@ def _get_required_window_size_for_client(
     return rect.right - rect.left, rect.bottom - rect.top
 
 
+_ADB_CONNECT_ATTEMPTED = False
+
+
+def _get_backend() -> str:
+    return os.getenv("AUTOFARMERS_BACKEND", "win32").strip().lower()
+
+
+def is_adb_backend() -> bool:
+    return _get_backend() == "adb"
+
+
+def get_adb_device_serial() -> str:
+    return os.getenv("ADB_DEVICE_SERIAL", "127.0.0.1:5555").strip()
+
+
+def _run_adb(args: list[str], *, timeout=12, input_bytes: bytes | None = None) -> subprocess.CompletedProcess:
+    cmd = ["adb", *args]
+    return subprocess.run(
+        cmd,
+        input=input_bytes,
+        capture_output=True,
+        timeout=timeout,
+        check=True,
+    )
+
+
+def _ensure_adb_connection():
+    global _ADB_CONNECT_ATTEMPTED
+    if _ADB_CONNECT_ATTEMPTED:
+        return
+
+    _ADB_CONNECT_ATTEMPTED = True
+    serial = get_adb_device_serial()
+    try:
+        _run_adb(["connect", serial], timeout=8)
+    except Exception:
+        pass
+
+
+def _parse_wm_size(text: str) -> tuple[int, int] | None:
+    match = re.search(r"(\d+)x(\d+)", text)
+    if not match:
+        return None
+    return int(match.group(1)), int(match.group(2))
+
+
+def _adb_get_device_size() -> tuple[int, int] | None:
+    _ensure_adb_connection()
+    serial = get_adb_device_serial()
+
+    try:
+        result = _run_adb(["-s", serial, "shell", "wm", "size"], timeout=8)
+    except Exception:
+        return None
+
+    output = result.stdout.decode("utf-8", errors="ignore")
+    lines = [line.strip() for line in output.splitlines() if line.strip()]
+
+    for line in lines:
+        if line.lower().startswith("override size"):
+            parsed = _parse_wm_size(line)
+            if parsed:
+                return parsed
+
+    for line in lines:
+        if line.lower().startswith("physical size"):
+            parsed = _parse_wm_size(line)
+            if parsed:
+                return parsed
+
+    return _parse_wm_size(output)
+
+
+def _extract_png_bytes(raw_bytes: bytes) -> bytes | None:
+    if not raw_bytes:
+        return None
+
+    variants = [
+        raw_bytes,
+        raw_bytes.replace(b"\r\r\n", b"\n"),
+        raw_bytes.replace(b"\r\n", b"\n"),
+    ]
+    signatures = [b"\x89PNG\r\n\x1a\n", b"\x89PNG\n\x1a\n"]
+    iend_marker = b"IEND\xaeB`\x82"
+
+    for data in variants:
+        for signature in signatures:
+            start = data.find(signature)
+            if start < 0:
+                continue
+
+            end = data.find(iend_marker, start)
+            if end < 0:
+                return data[start:]
+
+            return data[start : end + len(iend_marker)]
+
+    return None
+
+
+def _decode_adb_screencap(raw_bytes: bytes) -> np.ndarray | None:
+    png_bytes = _extract_png_bytes(raw_bytes)
+    if not png_bytes:
+        return None
+
+    img_array = np.frombuffer(png_bytes, dtype=np.uint8)
+    return cv2.imdecode(img_array, cv2.IMREAD_COLOR)
+
+
+def _adb_capture_window() -> tuple[np.ndarray, list[int]]:
+    _ensure_adb_connection()
+    serial = get_adb_device_serial()
+    capture_errors = []
+
+    try:
+        result = _run_adb(["-s", serial, "shell", "screencap", "-p"], timeout=12)
+        img = _decode_adb_screencap(result.stdout)
+        if img is not None:
+            return img, [0, 0]
+        capture_errors.append("shell screencap returned non-decodable PNG")
+    except Exception as exc:
+        capture_errors.append(f"shell screencap failed: {exc}")
+
+    try:
+        result = _run_adb(["-s", serial, "exec-out", "screencap", "-p"], timeout=12)
+        img = _decode_adb_screencap(result.stdout)
+        if img is not None:
+            return img, [0, 0]
+        capture_errors.append("exec-out screencap returned non-decodable PNG")
+    except Exception as exc:
+        capture_errors.append(f"exec-out screencap failed: {exc}")
+
+    detail = "; ".join(capture_errors)
+    raise RuntimeError(f"ADB screencap returned invalid image data. {detail}")
+
 def get_window_size():
     """Get the size of the 7DS window"""
+    if is_adb_backend():
+        device_size = _adb_get_device_size()
+        if device_size is not None:
+            return device_size
+
+        screenshot, _ = _adb_capture_window()
+        h, w = screenshot.shape[:2]
+        return w, h
+
     hwnd_target = win32gui.FindWindow(None, r"7DS")
     window_rect = win32gui.GetWindowRect(hwnd_target)
     w = window_rect[2] - window_rect[0]
@@ -95,6 +243,27 @@ def resize_7ds_window(width=540, height=960):
     Returns:
         bool: True if resize was successful, False otherwise
     """
+    if is_adb_backend():
+        _ensure_adb_connection()
+        serial = get_adb_device_serial()
+        try:
+            _run_adb(["-s", serial, "shell", "wm", "size", f"{int(width)}x{int(height)}"], timeout=8)
+            time.sleep(0.3)
+            size = _adb_get_device_size()
+            if size is None:
+                print("[WARNING] Could not verify ADB device resolution after resize.")
+                return True
+
+            if size == (int(width), int(height)):
+                print(f"[SUCCESS] ADB device resolution set to {size[0]}x{size[1]}")
+                return True
+
+            print(f"[WARNING] ADB resolution differs after resize: current={size[0]}x{size[1]}")
+            return False
+        except Exception as e:
+            print(f"[ERROR] Could not set ADB device resolution: {e}")
+            return False
+
     try:
         # Find the 7DS window
         hwnd_target = win32gui.FindWindow(None, r"7DS")
@@ -361,6 +530,9 @@ def capture_window() -> tuple[np.ndarray, tuple[int, int]]:
     Returns:
         tuple[np.ndarray, list[float]]: The image as a numpy array, and a list of the top-left corner of the window as [x,y]
     """
+    if is_adb_backend():
+        return _adb_capture_window()
+
     hwnd_target = win32gui.FindWindow(None, r"7DS")
     window_rect = win32gui.GetWindowRect(hwnd_target)
     w = window_rect[2] - window_rect[0]
@@ -427,6 +599,10 @@ def capture_screen() -> np.ndarray:
     Returns:
         np.ndarray: The image as a numpy array
     """
+    if is_adb_backend():
+        screenshot, _ = _adb_capture_window()
+        return screenshot
+
     # Get the screen dimensions
     hdesktop = win32gui.GetDesktopWindow()
     window_rect = win32gui.GetWindowRect(hdesktop)
@@ -475,5 +651,15 @@ def is_7ds_window_open() -> bool:
     Returns:
         bool: True if the window exists and is visible, False otherwise
     """
+    if is_adb_backend():
+        _ensure_adb_connection()
+        serial = get_adb_device_serial()
+        try:
+            result = _run_adb(["devices"], timeout=8)
+            output = result.stdout.decode("utf-8", errors="ignore")
+            return f"{serial}\tdevice" in output
+        except Exception:
+            return False
+
     hwnd = win32gui.FindWindow(None, r"7DS")
     return hwnd != 0

@@ -2,6 +2,7 @@ import contextlib
 import glob
 import os
 import random
+import subprocess
 import tempfile
 import threading
 import time
@@ -25,7 +26,9 @@ from sklearn.neighbors import KNeighborsClassifier
 from utilities.capture_window import (
     capture_screen,
     capture_window,
+    get_adb_device_serial,
     get_window_size,
+    is_adb_backend,
     is_7ds_window_open,
 )
 from utilities.card_data import Card, CardColors, CardRanks, CardTypes
@@ -185,6 +188,40 @@ def determine_relative_coordinates(img: np.ndarray):
 def clear_console():
     os.system("cls")
 
+def _run_adb_shell(*args: str, timeout=8):
+    serial = get_adb_device_serial()
+    cmd = ["adb", "-s", serial, "shell", *args]
+    return subprocess.run(cmd, capture_output=True, timeout=timeout, check=True)
+
+
+def _adb_escape_text(text: str) -> str:
+    escaped = text.replace(" ", "%s")
+    escaped = escaped.replace("&", "\\&").replace("|", "\\|").replace("<", "\\<").replace(">", "\\>")
+    escaped = escaped.replace('"', '\\"').replace("'", "\\'")
+    return escaped
+
+
+def _adb_keyevent_for(key: str) -> str | None:
+    mapping = {
+        "enter": "KEYCODE_ENTER",
+        "return": "KEYCODE_ENTER",
+        "esc": "KEYCODE_ESCAPE",
+        "escape": "KEYCODE_ESCAPE",
+        "backspace": "KEYCODE_DEL",
+        "delete": "KEYCODE_FORWARD_DEL",
+        "del": "KEYCODE_DEL",
+        "tab": "KEYCODE_TAB",
+        "space": "KEYCODE_SPACE",
+        "left": "KEYCODE_DPAD_LEFT",
+        "right": "KEYCODE_DPAD_RIGHT",
+        "up": "KEYCODE_DPAD_UP",
+        "down": "KEYCODE_DPAD_DOWN",
+        "home": "KEYCODE_MOVE_HOME",
+        "end": "KEYCODE_MOVE_END",
+        "back": "KEYCODE_BACK",
+    }
+    return mapping.get(key.strip().lower())
+
 
 def print_clr(
     *values, color: Color | str = Color.WHITE, sep: str = " ", end: str = "\n", file=None, flush: bool = False
@@ -233,6 +270,8 @@ def click_im(rectangle_or_point: Union[np.ndarray, tuple], window_location: list
 def move_to_location(point: np.ndarray | tuple, window_location: list[float]):
     """Move the cursor to a location without clicking on it"""
     (x, y) = (point[0] + window_location[0], point[1] + window_location[1])
+    if is_adb_backend():
+        return
     pyautogui.moveTo(x, y)
     time.sleep(0.1)
 
@@ -338,6 +377,12 @@ def find_floor_coordinates(screenshot: np.ndarray, window_location):
 
 def click(x, y, sleep_after_click=0.01):
     wait_if_paused()
+    if is_adb_backend():
+        _run_adb_shell("input", "tap", str(int(x)), str(int(y)))
+        if sleep_after_click > 0:
+            time.sleep(sleep_after_click)
+        return
+
     pyautogui.moveTo(x, y)
     win32api.mouse_event(win32con.MOUSEEVENTF_LEFTDOWN, 0, 0)
     time.sleep(sleep_after_click)
@@ -346,6 +391,12 @@ def click(x, y, sleep_after_click=0.01):
 
 def rclick(x, y, sleep_after_click=0.01):
     wait_if_paused()
+    if is_adb_backend():
+        _run_adb_shell("input", "tap", str(int(x)), str(int(y)))
+        if sleep_after_click > 0:
+            time.sleep(sleep_after_click)
+        return
+
     pyautogui.moveTo(x, y)
     win32api.mouse_event(win32con.MOUSEEVENTF_RIGHTDOWN, 0, 0)
     time.sleep(sleep_after_click)
@@ -360,6 +411,20 @@ def click_and_drag(start_x, start_y, end_x, end_y, *, sleep_after_click=0.02, dr
     - Requests 1 ms timer resolution only during the drag for smoother motion.
     - Slightly bumps thread priority (best-effort) to reduce scheduling hiccups.
     """
+
+    if is_adb_backend():
+        if sleep_after_click > 0:
+            time.sleep(sleep_after_click)
+        _run_adb_shell(
+            "input",
+            "swipe",
+            str(int(start_x)),
+            str(int(start_y)),
+            str(int(end_x)),
+            str(int(end_y)),
+            timeout=8,
+        )
+        return
 
     # --- Best-effort: give this thread a little priority boost
     with contextlib.suppress(Exception):
@@ -423,8 +488,12 @@ def click_and_drag(start_x, start_y, end_x, end_y, *, sleep_after_click=0.02, dr
 
 
 def drag_im(start_point, end_point, window_location, sleep_after_click=0.15, drag_duration=0.35, *, join=True):
-    global_start = (start_point[0] + window_location[0], start_point[1] + window_location[1])
-    global_end = (end_point[0] + window_location[0], end_point[1] + window_location[1])
+    if is_adb_backend():
+        global_start = (start_point[0], start_point[1])
+        global_end = (end_point[0], end_point[1])
+    else:
+        global_start = (start_point[0] + window_location[0], start_point[1] + window_location[1])
+        global_end = (end_point[0] + window_location[0], end_point[1] + window_location[1])
 
     t = threading.Thread(
         target=click_and_drag,
@@ -440,10 +509,29 @@ def drag_im(start_point, end_point, window_location, sleep_after_click=0.15, dra
 def press_key(key: str):
     wait_if_paused()
     print(f"Pressing key '{key}'")
+    if is_adb_backend():
+        keyevent = _adb_keyevent_for(key)
+        if keyevent:
+            _run_adb_shell("input", "keyevent", keyevent)
+        elif len(key) == 1:
+            _run_adb_shell("input", "text", _adb_escape_text(key))
+        else:
+            print(f"[WARNING] Unsupported ADB key '{key}', skipping.")
+        return
+
     pyautogui.press(key)
 
 
 def close_game():
+    if is_adb_backend():
+        package_name = os.getenv("AUTOFARMERS_ANDROID_PACKAGE", "com.netmarble.nanagb")
+        try:
+            _run_adb_shell("am", "force-stop", package_name)
+            print(f"Closed Android package '{package_name}'")
+        except Exception as e:
+            print(f"[WARN] Could not close Android package '{package_name}': {e}")
+        return
+
     # Find the window by title
     hwnd = win32gui.FindWindow(None, "7DS")
     if hwnd == 0:
@@ -461,6 +549,12 @@ def close_game():
 
 
 def close_game_if_not_in_login_screen():
+    if is_adb_backend():
+        screenshot, _ = capture_window()
+        if not find(vio.sync_code, screenshot):
+            close_game()
+        return
+
     # Find the window by title
     hwnd = win32gui.FindWindow(None, "7DS")
     if hwnd == 0:
@@ -846,6 +940,13 @@ def save_model(model: KNeighborsClassifier | LogisticRegression, filename: str):
 
 def type_word(word: str):
     """Types a word to the screen; useful to re-introduce the password if needed"""
+    if is_adb_backend():
+        for char in word:
+            delay = random.uniform(0.1, 0.2)
+            _run_adb_shell("input", "text", _adb_escape_text(char))
+            time.sleep(delay)
+        return
+
     # To simulate human typing, just for fun
     delays = [random.uniform(0.1, 0.2) for _ in word]
     for char, delay in zip(word, delays):
