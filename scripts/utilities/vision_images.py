@@ -158,6 +158,9 @@ floor_3_cleared_db = MultiVision(
     # Deer floor 3 cleared images
     "demonic_beasts\\floor_3_cleared_deer.png",
     "demonic_beasts\\floor_3_cleared_2_deer.png",
+    # Dogs floor 3 cleared images
+    "demonic_beasts\\floor_3_cleared_skollandhati_cleaned.png",
+    "demonic_beasts\\floor_3_cleared_2_skollandhati.png",
     image_name="floor_3_cleared_db",
 )
 available_floor = Vision("demonic_beasts\\available_floor.png")
@@ -167,6 +170,7 @@ three_empty_slots = Vision("demonic_beasts\\three_slots.png")
 two_empty_slots = Vision("demonic_beasts\\two_slots.png")
 weekly_mission = Vision("demonic_beasts\\lazy_weekly_mission.png")
 skollandhati = Vision("demonic_beasts\\skollandhati.png")
+floor_3_cleared_dogs = Vision("demonic_beasts\\floor_3_cleared_skollandhati_cleaned.png")
 guaranteed_reward = Vision("demonic_beasts\\guaranteed_reward.png")
 meli_aoe = Vision("demonic_beasts\\meli_aoe.png")
 meli_ult = Vision("demonic_beasts\\meli_ult.png")
@@ -347,7 +351,6 @@ legendary_boss_left_arrow = Vision("legendary_boss\\lb_left.png")
 legendary_boss_right_arrow = Vision("legendary_boss\\lb_right.png")
 legendary_boss_min_button = Vision("legendary_boss\\lb_min_btn.png")
 legendary_boss_final_score = Vision("legendary_boss\\lb_final_score.png")
-
 
 # For demon farming
 boss_menu = Vision("demons\\demons.jpg")

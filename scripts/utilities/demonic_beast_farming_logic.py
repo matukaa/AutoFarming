@@ -46,6 +46,9 @@ class DemonicBeastFarmer(IFarmer, abc.ABC):
     num_victories = 0
     num_losses = 0
 
+    # Counter for beast search swipe attempts
+    _swipe_attempts = 0
+
     def __init__(
         self,
         starting_state=States.GOING_TO_DB,
@@ -74,6 +77,7 @@ class DemonicBeastFarmer(IFarmer, abc.ABC):
 
         # Save the image we want
         self.db_image = demonic_beast_image
+
 
         # Save the logger
         self.logger = logger
@@ -104,6 +108,7 @@ class DemonicBeastFarmer(IFarmer, abc.ABC):
         IFarmer.daily_farmer.set_daily_pvp(True)
         IFarmer.daily_farmer.add_complete_callback(self.dailies_complete_callback)
 
+
     def exit_message(self):
         self.logger.info(
             f"We beat {DemonicBeastFarmer.num_victories} floors, {DemonicBeastFarmer.num_floor_3_victories} times floor 3, and lost {DemonicBeastFarmer.num_losses} times."
@@ -115,6 +120,12 @@ class DemonicBeastFarmer(IFarmer, abc.ABC):
     def going_to_db_state(self):
         """This should be the original state. Let's go to the Demonic Beast menu"""
         screenshot, window_location = capture_window()
+
+        if DemonicBeastFarmer.current_floor == 1 and find(vio.floor_3_cleared_db, screenshot):
+            print("Detected floor cleared image, moving to RESETTING_DB...")
+            self.current_state = States.RESETTING_DB
+            return
+
 
         # First of all, check whether it's time to do our dailies!
         if self.check_for_dailies():
@@ -131,17 +142,28 @@ class DemonicBeastFarmer(IFarmer, abc.ABC):
         find_and_click(vio.demonic_beast, screenshot, window_location)
 
         # If we see we're inside the DB selection screen but don't see our DemonicBeast,
-        # swipe right and try again
+        # swipe right (or left after 4 attempts) and try again
         if find(vio.demonic_beast_battle, screenshot) and not find(self.db_image, screenshot):
-            # Swipe to the right!
-            print("Wrong demonic beast, searching the right one...")
-            drag_im(
-                Coordinates.get_coordinates("right_swipe"),
-                Coordinates.get_coordinates("left_swipe"),
-                window_location,
-            )
+            self._swipe_attempts += 1
+            if self._swipe_attempts > 4:
+                print(f"Wrong demonic beast, attempt {self._swipe_attempts}, swiping left...")
+                drag_im(
+                    Coordinates.get_coordinates("left_swipe"),
+                    Coordinates.get_coordinates("right_swipe"),
+                    window_location,
+                )
+            else:
+                print(f"Wrong demonic beast, attempt {self._swipe_attempts}, swiping right...")
+                drag_im(
+                    Coordinates.get_coordinates("right_swipe"),
+                    Coordinates.get_coordinates("left_swipe"),
+                    window_location,
+                )
             time.sleep(0.5)
             return
+
+        # Reset swipe counter once the beast is found
+        self._swipe_attempts = 0
 
         # Go into the 'Demonic Beast' section
         find_and_click(self.db_image, screenshot, window_location)
@@ -323,6 +345,8 @@ class DemonicBeastFarmer(IFarmer, abc.ABC):
 
         # Click on the confirmation window...
         if find_and_click(vio.ok_main_button, screenshot, window_location) or find(vio.set_db_party, screenshot):
+            # Scroll down slightly so the floor image becomes detectable again
+            drag_im((530, 530), (530, 430), window_location, sleep_after_click=3.0, drag_duration=1.2)
             print("Moving to the original state, GOING_TO_DB")
             self.current_state = States.GOING_TO_DB
             return
